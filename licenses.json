@@ -1,0 +1,12 @@
+{
+  "devices": [
+    {
+      "mac": "24:6F:28:XX:XX:XX",
+      "expires_at": 1812000000
+    },
+    {
+      "mac": "30:AEA4:YY:YY:YY",
+      "expires_at": 1750000000
+    }
+  ]
+}
