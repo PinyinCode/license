@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta
+from datetime import datetime, timedelta
 import json
 import os
 from flask import (
@@ -174,7 +174,7 @@ def callback():
     )
 
 
-# Đã sửa lỗi đăng xuất triệt để bằng session.clear()
+# Đăng xuất triệt để và chuyển hướng về trang /login
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
   session.clear()
