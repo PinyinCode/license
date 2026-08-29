@@ -1,12 +1,23 @@
 {
-  "devices": [
+  "telegram": {
+    "bot_token": "8380211760:AAFzh9FBQ4BTvmJO_xOp4gUyg9MeKx-VN0Y",
+    "chat_id": "-5499297763"
+  },
+  "allowed_devices": [
     {
-      "mac": "24:6F:28:XX:XX:XX",
-      "expires_at": 1812000000
+      "mac": "24:6F:28:11:22:33",
+      "expire_date": "2026-12-31",
+      "owner": "Khách hàng A"
     },
     {
-      "mac": "30:AEA4:YY:YY:YY",
-      "expires_at": 1750000000
+      "mac": "CC:DB:7A:44:55:66",
+      "expire_date": "2027-06-30",
+      "owner": "Khách hàng B (VIP)"
+    },
+    {
+      "mac": "A0:B1:C2:D3:E4:F5",
+      "expire_date": "2028-01-01",
+      "owner": "Khách hàng C"
     }
   ]
 }
