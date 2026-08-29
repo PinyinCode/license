@@ -1,12 +1,28 @@
 ﻿from datetime import datetime, timedelta
+import json
+import os
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
 
-# Cơ sở dữ liệu giả lập trên RAM
-devices_db = {}
+DB_FILE = "devices.json"
 
-# Giao diện HTML với lịch chọn ngày hết hạn cụ thể
+
+def load_db():
+  if os.path.exists(DB_FILE):
+    try:
+      with open(DB_FILE, "r") as f:
+        return json.load(f)
+    except:
+      return {}
+  return {}
+
+
+def save_db(data):
+  with open(DB_FILE, "w") as f:
+    json.dump(data, f, indent=4)
+
+
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -41,7 +57,7 @@ ADMIN_HTML = """
             </form>
         </div>
 
-        <h3>Danh sách thiết bị đã kết nối</h3>
+        <h3>Danh sách thiết bị đã lưu</h3>
         <table>
             <tr>
                 <th>Địa chỉ MAC</th>
@@ -71,26 +87,29 @@ def home():
 
 @app.route("/admin", methods=["GET"])
 def admin_panel():
-  return render_template_string(ADMIN_HTML, devices=devices_db)
+  devices = load_db()
+  return render_template_string(ADMIN_HTML, devices=devices)
 
 
 @app.route("/admin/add", methods=["POST"])
 def admin_add():
   mac = request.form.get("mac")
-  expiry_date_str = request.form.get("expiry_date")  # Định dạng YYYY-MM-DD từ input date
+  expiry_date_str = request.form.get("expiry_date")
 
   if mac and expiry_date_str:
     mac = mac.strip().upper()
     try:
-      # Chuyển chuỗi ngày thành datetime (đặt giờ hết hạn là cuối ngày 23:59:59)
-      expiry_date = datetime.strptime(expiry_date_str, "%Y-m-%d").replace(
+      # Cố định giờ hết hạn cuối ngày (23:59:59)
+      expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d").replace(
           hour=23, minute=59, second=59
       )
-      devices_db[mac] = {
+      db = load_db()
+      db[mac] = {
           "status": "active",
           "expires_at": expiry_date.isoformat(),
-          "trial": False,
+          "trial": False,  # Đánh dấu đây là tài khoản chính thức do admin cấp
       }
+      save_db(db)
     except ValueError:
       pass
 
@@ -108,21 +127,25 @@ def check_license():
 
   mac_address = mac_address.upper()
   now = datetime.utcnow()
+  db = load_db()
 
-  if mac_address not in devices_db:
-    expiry_date = now + timedelta(days=30)  # Tự động cấp 30 ngày trial
-    devices_db[mac_address] = {
+  # Chỉ cấp 30 ngày trial nếu MAC này HOÀN TOÀN CHƯA TỒN TẠI trên hệ thống
+  if mac_address not in db:
+    expiry_date = now + timedelta(days=30)
+    db[mac_address] = {
         "status": "active",
         "expires_at": expiry_date.isoformat(),
         "trial": True,
         "created_at": now.isoformat(),
     }
+    save_db(db)
 
-  device_info = devices_db[mac_address]
+  device_info = db[mac_address]
   expiry_time = datetime.fromisoformat(device_info["expires_at"])
 
   if now > expiry_time:
     device_info["status"] = "expired"
+    save_db(db)
     return jsonify({
         "mac": mac_address,
         "status": "expired",
@@ -137,30 +160,6 @@ def check_license():
       "trial": device_info["trial"],
       "expires_at": device_info["expires_at"],
   })
-
-
-@app.route("/api/admin/activate", methods=["POST"])
-def admin_activate():
-  data = request.json
-  if not data:
-    return jsonify({"error": "Invalid JSON"}), 400
-  mac = data.get("mac")
-  expiry_date_str = data.get(
-      "expires_at"
-  )  # Nhận trực tiếp chuỗi thời gian nếu gọi API
-
-  if not mac or not expiry_date_str:
-    return jsonify({"error": "Missing mac or expires_at"}), 400
-
-  mac = mac.upper()
-  devices_db[mac] = {
-      "status": "active",
-      "expires_at": expiry_date_str,
-      "trial": False,
-  }
-  return jsonify(
-      {"success": True, "mac": mac, "new_expires_at": expiry_date_str}
-  )
 
 
 if __name__ == "__main__":
