@@ -19,10 +19,12 @@ DB_FILE = "devices.json"
 
 # --- CẤU HÌNH GITHUB OAUTH ---
 GITHUB_CLIENT_ID = "Ov23liD2PKCxgNkZfUj5"
-GITHUB_CLIENT_SECRET = "158a74d6beed0ed201ad9a7c4a041738d3185eb6"  # Thay mã Secret của bạn vào đây
-YOUR_GITHUB_USERNAME = (
-    "PinyinCode"  # Ví dụ: "nguyenvana"
-)
+GITHUB_CLIENT_SECRET = "158a74d6beed0ed201ad9a7c4a041738d3185eb6"
+YOUR_GITHUB_USERNAME = "PinyinCode"
+
+# Link file firmware .bin của bạn trên Render Static Site
+DEFAULT_FIRMWARE_URL = "https://esp32-428i.onrender.com/esp32_v1.bin"
+DEFAULT_LATEST_VERSION = "v1.1.0"
 
 
 def load_db():
@@ -45,10 +47,10 @@ ADMIN_HTML = """
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <title>Quản lý Bản quyền ESP32</title>
+    <title>Quản lý Bản quyền & OTA ESP32</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f4f7f6; color: #333; }
-        .container { max-width: 850px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { max-width: 950px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .header { display: flex; justify-content: space-between; align-items: center; }
         h2 { color: #007BFF; margin: 0; }
         .logout-btn { background: #dc3545; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 14px; }
@@ -59,13 +61,16 @@ ADMIN_HTML = """
         input, select, button { padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
         button { background: #28a745; color: white; border: none; cursor: pointer; }
         button:hover { background: #218838; }
+        .ota-btn { background: #17a2b8; padding: 6px 10px; font-size: 13px; border-radius: 4px; color: white; text-decoration: none; display: inline-block; }
+        .ota-btn:hover { background: #138496; }
+        .ota-active { background: #ffc107; color: #212529; font-weight: bold; }
         .form-group { background: #e9ecef; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h2>Quản lý Bản quyền ESP32</h2>
+            <h2>Quản lý Bản quyền & OTA ESP32</h2>
             <a href="/logout" class="logout-btn">Đăng xuất ({{ user }})</a>
         </div>
         <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
@@ -88,6 +93,7 @@ ADMIN_HTML = """
                 <th>Trạng thái</th>
                 <th>Loại</th>
                 <th>Ngày hết hạn</th>
+                <th>Thao tác OTA</th>
             </tr>
             {% for mac, info in devices.items() %}
             <tr>
@@ -95,6 +101,14 @@ ADMIN_HTML = """
                 <td style="color: {{ 'green' if info.status == 'active' else 'red' }};">{{ info.status }}</td>
                 <td>{{ 'Dùng thử (Trial)' if info.trial else 'Chính thức' }}</td>
                 <td>{{ info.expires_at }}</td>
+                <td>
+                    {% if info.get('ota_pending', False) %}
+                        <span class="ota-btn ota-active">Chờ cập nhật...</span>
+                        <a href="/admin/cancel-ota/{{ mac }}" style="font-size:12px; color:red; margin-left: 5px;">Hủy</a>
+                    {% else %}
+                        <a href="/admin/trigger-ota/{{ mac }}" class="ota-btn">Cập nhật OTA</a>
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </table>
@@ -106,7 +120,7 @@ ADMIN_HTML = """
 
 @app.route("/")
 def home():
-  return "ESP32 License Server is running!"
+  return "ESP32 License & OTA Server is running!"
 
 
 @app.route("/login")
@@ -160,9 +174,10 @@ def callback():
     )
 
 
-@app.route("/logout", methods=["GET"])
+# Đã sửa lỗi đăng xuất triệt để bằng session.clear()
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
-  session.pop("user", None)
+  session.clear()
   return redirect(url_for("login"))
 
 
@@ -192,14 +207,48 @@ def admin_add():
           hour=23, minute=59, second=59
       )
       db = load_db()
-      db[mac] = {
-          "status": "active",
-          "expires_at": expiry_date.isoformat(),
-          "trial": False,
-      }
+      if mac in db:
+        db[mac]["expires_at"] = expiry_date.isoformat()
+        db[mac]["status"] = "active"
+      else:
+        db[mac] = {
+            "status": "active",
+            "expires_at": expiry_date.isoformat(),
+            "trial": False,
+            "ota_pending": False,
+            "created_at": datetime.utcnow().isoformat(),
+        }
       save_db(db)
     except ValueError:
       pass
+
+  return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/trigger-ota/<path:mac>", methods=["GET"])
+def trigger_ota(mac):
+  if "user" not in session:
+    return redirect(url_for("login"))
+
+  mac = mac.strip().upper()
+  db = load_db()
+  if mac in db:
+    db[mac]["ota_pending"] = True
+    save_db(db)
+
+  return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/cancel-ota/<path:mac>", methods=["GET"])
+def cancel_ota(mac):
+  if "user" not in session:
+    return redirect(url_for("login"))
+
+  mac = mac.strip().upper()
+  db = load_db()
+  if mac in db:
+    db[mac]["ota_pending"] = False
+    save_db(db)
 
   return redirect(url_for("admin_panel"))
 
@@ -223,6 +272,7 @@ def check_license():
         "status": "active",
         "expires_at": expiry_date.isoformat(),
         "trial": True,
+        "ota_pending": False,
         "created_at": now.isoformat(),
     }
     save_db(db)
@@ -247,6 +297,29 @@ def check_license():
       "trial": device_info["trial"],
       "expires_at": device_info["expires_at"],
   })
+
+
+@app.route("/api/check-update", methods=["GET"])
+def check_update():
+  mac_address = request.args.get("mac")
+  if not mac_address:
+    return jsonify({"update_available": False, "error": "Missing MAC"}), 400
+
+  mac_address = mac_address.upper()
+  db = load_db()
+
+  if mac_address in db and db[mac_address].get("ota_pending", False):
+    db[mac_address]["ota_pending"] = False
+    save_db(db)
+
+    return jsonify({
+        "update_available": True,
+        "latest_version": DEFAULT_LATEST_VERSION,
+        "firmware_url": DEFAULT_FIRMWARE_URL,
+        "changelog": "Cập nhật từ xa theo yêu cầu quản trị viên.",
+    })
+
+  return jsonify({"update_available": False})
 
 
 if __name__ == "__main__":
