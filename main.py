@@ -6,7 +6,7 @@ app = Flask(__name__)
 # Cơ sở dữ liệu giả lập trên RAM
 devices_db = {}
 
-# Giao diện HTML quản lý trực quan
+# Giao diện HTML với lịch chọn ngày hết hạn cụ thể
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -15,7 +15,7 @@ ADMIN_HTML = """
     <title>Quản lý Bản quyền ESP32</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f4f7f6; color: #333; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { max-width: 850px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h2 { color: #007BFF; }
         table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
@@ -31,12 +31,12 @@ ADMIN_HTML = """
         <h2>Quản lý Bản quyền Thiết bị ESP32</h2>
         
         <div class="form-group">
-            <h3>Thêm hoặc Gia hạn thiết bị</h3>
+            <h3>Thêm hoặc Cập nhật hạn thiết bị</h3>
             <form action="/admin/add" method="POST">
                 <label>Địa chỉ MAC:</label><br>
                 <input type="text" name="mac" placeholder="Ví dụ: AA:BB:CC:DD:EE:FF" required style="width: 100%%;"><br>
-                <label>Số ngày sử dụng:</label><br>
-                <input type="number" name="days" value="365" required style="width: 100%%;"><br><br>
+                <label>Ngày hết hạn cụ thể:</label><br>
+                <input type="date" name="expiry_date" required style="width: 100%%;"><br><br>
                 <button type="submit">Lưu / Cập nhật</button>
             </form>
         </div>
@@ -77,15 +77,23 @@ def admin_panel():
 @app.route("/admin/add", methods=["POST"])
 def admin_add():
   mac = request.form.get("mac")
-  days = request.form.get("days", 365)
-  if mac:
+  expiry_date_str = request.form.get("expiry_date")  # Định dạng YYYY-MM-DD từ input date
+
+  if mac and expiry_date_str:
     mac = mac.strip().upper()
-    expiry_date = datetime.utcnow() + timedelta(days=int(days))
-    devices_db[mac] = {
-        "status": "active",
-        "expires_at": expiry_date.isoformat(),
-        "trial": False,
-    }
+    try:
+      # Chuyển chuỗi ngày thành datetime (đặt giờ hết hạn là cuối ngày 23:59:59)
+      expiry_date = datetime.strptime(expiry_date_str, "%Y-m-%d").replace(
+          hour=23, minute=59, second=59
+      )
+      devices_db[mac] = {
+          "status": "active",
+          "expires_at": expiry_date.isoformat(),
+          "trial": False,
+      }
+    except ValueError:
+      pass
+
   return admin_panel()
 
 
@@ -137,19 +145,21 @@ def admin_activate():
   if not data:
     return jsonify({"error": "Invalid JSON"}), 400
   mac = data.get("mac")
-  days = data.get("days", 365)
-  if not mac:
-    return jsonify({"error": "Missing mac"}), 400
+  expiry_date_str = data.get(
+      "expires_at"
+  )  # Nhận trực tiếp chuỗi thời gian nếu gọi API
+
+  if not mac or not expiry_date_str:
+    return jsonify({"error": "Missing mac or expires_at"}), 400
 
   mac = mac.upper()
-  expiry_date = datetime.utcnow() + timedelta(days=int(days))
   devices_db[mac] = {
       "status": "active",
-      "expires_at": expiry_date.isoformat(),
+      "expires_at": expiry_date_str,
       "trial": False,
   }
   return jsonify(
-      {"success": True, "mac": mac, "new_expires_at": expiry_date.isoformat()}
+      {"success": True, "mac": mac, "new_expires_at": expiry_date_str}
   )
 
 
