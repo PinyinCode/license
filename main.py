@@ -1,63 +1,90 @@
-﻿from datetime import datetime
-from fastapi import FastAPI, HTTPException
-import sqlite3
-import uvicorn
+﻿from datetime import datetime, timedelta
+from flask import Flask, jsonify, request
 
-app = FastAPI(title="Device License Server")
+app = Flask(__name__)
 
-# Khởi tạo cơ sở dữ liệu SQLite cục bộ (miễn phí, tự sinh file licenses.db)
-def init_db():
-    conn = sqlite3.connect("licenses.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS devices (
-            mac TEXT PRIMARY KEY,
-            expire_date TEXT,
-            status TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+# Cơ sở dữ liệu giả lập trên RAM (Có thể thay thế bằng SQLite hoặc MongoDB/PostgreSQL nếu cần lưu trữ lâu dài)
+# Cấu trúc: { "MAC_ADDRESS": { "status": "active", "expires_at": "2026-09-28T...", "trial": True } }
+devices_db = {}
 
-init_db()
 
-# 1. API kiểm tra bản quyền (Thiết bị ESP32 sẽ gọi API này)
-@app.get("/api/check-license")
-def check_license(mac: str):
-    conn = sqlite3.connect("licenses.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT expire_date, status FROM devices WHERE mac = ?", (mac.upper(),))
-    row = cursor.fetchone()
-    conn.close()
+@app.route("/")
+def home():
+  return "ESP32 License Server is running successfully!"
 
-    if not row:
-        return {"status": "not_found", "message": "Thiết bị chưa được đăng ký bản quyền"}
 
-    expire_date_str, status = row
-    
-    # Kiểm tra hạn sử dụng so với ngày hiện tại
-    try:
-        expire_date = datetime.strptime(expire_date_str, "%Y-%m-%d")
-        if status != "active" or datetime.now() > expire_date:
-            return {"status": "expired", "message": "Thiết bị đã hết hạn bản quyền"}
-    except Exception:
-        return {"status": "error", "message": "Lỗi định dạng ngày tháng"}
+@app.route("/api/check-license", methods=["GET"])
+def check_license():
+  # Lấy địa chỉ MAC từ request (Ví dụ: /api/check-license?mac=11:22:33:44:55:66)
+  mac_address = request.args.get("mac")
 
-    return {"status": "active", "expire_date": expire_date_str, "message": "Bản quyền hợp lệ"}
+  if not mac_address:
+    return (
+        jsonify({"error": "Missing mac address parameter", "status": "error"}),
+        400,
+    )
 
-# 2. API thêm hoặc gia hạn thiết bị (Dùng để bạn quản lý từ xa)
-@app.post("/api/set-license")
-def set_license(mac: str, expire_date: str):
-    # Định dạng expire_date yêu cầu: "YYYY-MM-DD" (Ví dụ: "2026-12-31")
-    conn = sqlite3.connect("licenses.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO devices (mac, expire_date, status) VALUES (?, ?, 'active')
-        ON CONFLICT(mac) DO UPDATE SET expire_date = ?, status = 'active'
-    """, (mac.upper(), expire_date, expire_date))
-    conn.commit()
-    conn.close()
-    return {"success": True, "message": f"Đã cập nhật hạn cho MAC {mac.upper()} đến {expire_date}"}
+  mac_address = mac_address.upper()
+  now = datetime.utcnow()
+
+  # Nếu thiết bị chưa từng kết nối lên hệ thống -> Tự động cấp 30 ngày dùng thử (Trial)
+  if mac_address not in devices_db:
+    expiry_date = now + timedelta(days=30)
+    devices_db[mac_address] = {
+        "status": "active",
+        "expires_at": expiry_date.isoformat(),
+        "trial": True,
+        "created_at": now.isoformat(),
+    }
+
+  device_info = devices_db[mac_address]
+  expiry_time = datetime.fromisoformat(device_info["expires_at"])
+
+  # Kiểm tra xem hạn sử dụng đã qua chưa
+  if now > expiry_time:
+    device_info["status"] = "expired"
+    return jsonify({
+        "mac": mac_address,
+        "status": "expired",
+        "message": "License expired. Please renew.",
+        "expires_at": device_info["expires_at"],
+    })
+
+  # Nếu còn hạn
+  return jsonify({
+      "mac": mac_address,
+      "status": "active",
+      "message": "License is valid.",
+      "trial": device_info["trial"],
+      "expires_at": device_info["expires_at"],
+  })
+
+
+# API phụ để bạn chủ động kích hoạt/gia hạn thiết bị từ xa nếu cần
+@app.route("/api/admin/activate", methods=["POST"])
+def admin_activate():
+  data = request.json
+  mac_address = data.get("mac")
+  days = data.get("days", 365)  # Mặc định gia hạn 1 năm
+
+  if not mac_address:
+    return jsonify({"error": "Missing mac"}), 400
+
+  mac_address = mac_address.upper()
+  expiry_date = datetime.utcnow() + timedelta(days=int(days))
+
+  devices_db[mac_address] = {
+      "status": "active",
+      "expires_at": expiry_date.isoformat(),
+      "trial": False,
+  }
+
+  return jsonify({
+      "success": True,
+      "mac": mac_address,
+      "new_expires_at": expiry_date.isoformat(),
+  })
+
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+  app.run(host="0.0.0.0", port=10000)
