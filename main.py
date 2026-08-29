@@ -19,9 +19,9 @@ DB_FILE = "devices.json"
 
 # --- CẤU HÌNH GITHUB OAUTH ---
 GITHUB_CLIENT_ID = "Ov23liD2PKCxgNkZfUj5"
-GITHUB_CLIENT_SECRET = "DÁN_CLIENT_SECRET_CỦA_BẠN_VÀO_ĐÂY"  # Thay mã Secret của bạn vào đây
+GITHUB_CLIENT_SECRET = "158a74d6beed0ed201ad9a7c4a041738d3185eb6"  # Thay mã Secret của bạn vào đây
 YOUR_GITHUB_USERNAME = (
-    "ĐIỀN_TÊN_TÀI_KHOẢN_GITHUB_CỦA_BẠN_VÀO_ĐÂY"  # Ví dụ: "nguyenvana"
+    "PinyinCode"  # Ví dụ: "nguyenvana"
 )
 
 
