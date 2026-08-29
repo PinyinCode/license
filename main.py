@@ -42,6 +42,33 @@ def save_db(data):
     json.dump(data, f, indent=4)
 
 
+# --- GIAO DIỆN TRANG ĐĂNG NHẬP ---
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Đăng nhập - Quản lý OTA ESP32</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; color: #333; }
+        .login-card { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); text-align: center; width: 350px; }
+        h2 { color: #007BFF; margin-bottom: 10px; }
+        p { color: #666; font-size: 14px; margin-bottom: 25px; }
+        .github-btn { background: #24292e; color: white; padding: 12px 20px; text-decoration: none; border-radius: 4px; display: inline-block; font-weight: bold; width: 100%; box-sizing: border-box; }
+        .github-btn:hover { background: #2c3238; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>Quản Trị ESP32</h2>
+        <p>Vui lòng xác thực tài khoản quản trị</p>
+        <a href="/login/authorize" class="github-btn">Đăng nhập bằng GitHub</a>
+    </div>
+</body>
+</html>
+"""
+
+# --- GIAO DIỆN TRANG QUẢN TRỊ ---
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -125,6 +152,13 @@ def home():
 
 @app.route("/login")
 def login():
+  if "user" in session:
+    return redirect(url_for("admin_panel"))
+  return render_template_string(LOGIN_HTML)
+
+
+@app.route("/login/authorize")
+def login_authorize():
   github_auth_url = (
       f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}"
   )
@@ -174,7 +208,6 @@ def callback():
     )
 
 
-# Đăng xuất triệt để và chuyển hướng về trang /login
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
   session.clear()
