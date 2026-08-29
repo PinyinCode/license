@@ -1,11 +1,29 @@
 ﻿from datetime import datetime, timedelta
 import json
 import os
-from flask import Flask, jsonify, render_template_string, request
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template_string,
+    request,
+    session,
+    url_for,
+)
+import requests
 
 app = Flask(__name__)
+# Khởi tạo mã hóa session cho Flask (bắt buộc khi dùng đăng nhập)
+app.secret_key = os.urandom(24)
 
 DB_FILE = "devices.json"
+
+# Cấu hình GitHub OAuth (Điền thông tin bạn vừa tạo ở Bước 1 vào đây)
+GITHUB_CLIENT_ID = "Ov23liD2PKCxgNkZfUj5"
+GITHUB_CLIENT_SECRET = "158a74d6beed0ed201ad9a7c4a041738d3185eb6"
+YOUR_GITHUB_USERNAME = (
+    "PinyinCode"  # Ví dụ: "nguyenvana"
+)
 
 
 def load_db():
@@ -32,7 +50,10 @@ ADMIN_HTML = """
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f4f7f6; color: #333; }
         .container { max-width: 850px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h2 { color: #007BFF; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        h2 { color: #007BFF; margin: 0; }
+        .logout-btn { background: #dc3545; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 14px; }
+        .logout-btn:hover { background: #c82333; }
         table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
         th { background: #007BFF; color: white; }
@@ -44,7 +65,11 @@ ADMIN_HTML = """
 </head>
 <body>
     <div class="container">
-        <h2>Quản lý Bản quyền Thiết bị ESP32</h2>
+        <div class="header">
+            <h2>Quản lý Bản quyền ESP32</h2>
+            <a href="/logout" class="logout-btn">Đăng xuất ({{ user }})</a>
+        </div>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
         
         <div class="form-group">
             <h3>Thêm hoặc Cập nhật hạn thiết bị</h3>
@@ -85,21 +110,88 @@ def home():
   return "ESP32 License Server is running!"
 
 
+# 1. Đường dẫn chuyển hướng sang GitHub để đăng nhập
+@app.route("/login")
+def login():
+  github_auth_url = (
+      f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}"
+  )
+  return redirect(github_auth_url)
+
+
+# 2. Nhận kết quả trả về từ GitHub sau khi đăng nhập thành công
+@app.route("/login/callback")
+def callback():
+  code = request.args.get("code")
+  if not code:
+    return "Đăng nhập thất bại từ GitHub!", 400
+
+  # Lấy Access Token từ GitHub
+  token_url = "https://github.com/login/oauth/access_token"
+  headers = {"Accept": "application/json"}
+  data = {
+      "client_id": GITHUB_CLIENT_ID,
+      "client_secret": GITHUB_CLIENT_SECRET,
+      "code": code,
+  }
+  response = requests.post(token_url, json=data, headers=headers)
+  token_json = response.json()
+  access_token = token_json.get("access_token")
+
+  if not access_token:
+    return "Không thể lấy Token xác thực từ GitHub!", 400
+
+  # Lấy thông tin tài khoản GitHub của người vừa đăng nhập
+  user_url = "https://api.github.com/user"
+  user_headers = {
+      "Authorization": f"Bearer {access_token}",
+      "Accept": "application/json",
+  }
+  user_response = requests.get(user_url, headers=user_headers)
+  user_data = user_response.json()
+  github_username = user_data.get("login")
+
+  # KIỂM TRA BẢO MẬT: Chỉ đúng tài khoản của bạn mới được phép vào
+  if github_username and github_username.lower() == YOUR_GITHUB_USERNAME.lower():
+    session["user"] = github_username
+    return redirect(url_for("admin_panel"))
+  else:
+    return (
+        f"Truy cập bị từ chối! Tài khoản GitHub ({github_username})"
+        " không có quyền quản trị hệ thống này.",
+        403,
+    )
+
+
+@app.route("/logout")
+def logout():
+  session.pop("user", None)
+  return redirect(url_for("login"))
+
+
 @app.route("/admin", methods=["GET"])
 def admin_panel():
+  # Nếu chưa đăng nhập bằng GitHub -> Chuyển hướng sang trang login
+  if "user" not in session:
+    return redirect(url_for("login"))
+
   devices = load_db()
-  return render_template_string(ADMIN_HTML, devices=devices)
+  return render_template_string(
+      ADMIN_HTML, devices=devices, user=session["user"]
+  )
 
 
 @app.route("/admin/add", methods=["POST"])
 def admin_add():
+  if "user" not in session:
+    return redirect(url_for("login"))
+
   mac = request.form.get("mac")
   expiry_date_str = request.form.get("expiry_date")
 
   if mac and expiry_date_str:
     mac = mac.strip().upper()
     try:
-      # Cố định giờ hết hạn cuối ngày (23:59:59)
       expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d").replace(
           hour=23, minute=59, second=59
       )
@@ -107,17 +199,18 @@ def admin_add():
       db[mac] = {
           "status": "active",
           "expires_at": expiry_date.isoformat(),
-          "trial": False,  # Đánh dấu đây là tài khoản chính thức do admin cấp
+          "trial": False,
       }
       save_db(db)
     except ValueError:
       pass
 
-  return admin_panel()
+  return redirect(url_for("admin_panel"))
 
 
 @app.route("/api/check-license", methods=["GET"])
 def check_license():
+  # API này công khai cho ESP32 gọi tự do không cần đăng nhập
   mac_address = request.args.get("mac")
   if not mac_address:
     return (
@@ -129,7 +222,6 @@ def check_license():
   now = datetime.utcnow()
   db = load_db()
 
-  # Chỉ cấp 30 ngày trial nếu MAC này HOÀN TOÀN CHƯA TỒN TẠI trên hệ thống
   if mac_address not in db:
     expiry_date = now + timedelta(days=30)
     db[mac_address] = {
