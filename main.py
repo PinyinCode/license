@@ -13,16 +13,15 @@ from flask import (
 import requests
 
 app = Flask(__name__)
-# Khởi tạo mã hóa session cho Flask (bắt buộc khi dùng đăng nhập)
 app.secret_key = os.urandom(24)
 
 DB_FILE = "devices.json"
 
-# Cấu hình GitHub OAuth (Điền thông tin bạn vừa tạo ở Bước 1 vào đây)
+# --- CẤU HÌNH GITHUB OAUTH ---
 GITHUB_CLIENT_ID = "Ov23liD2PKCxgNkZfUj5"
-GITHUB_CLIENT_SECRET = "158a74d6beed0ed201ad9a7c4a041738d3185eb6"
+GITHUB_CLIENT_SECRET = "DÁN_CLIENT_SECRET_CỦA_BẠN_VÀO_ĐÂY"  # Thay mã Secret của bạn vào đây
 YOUR_GITHUB_USERNAME = (
-    "PinyinCode"  # Ví dụ: "nguyenvana"
+    "ĐIỀN_TÊN_TÀI_KHOẢN_GITHUB_CỦA_BẠN_VÀO_ĐÂY"  # Ví dụ: "nguyenvana"
 )
 
 
@@ -54,7 +53,7 @@ ADMIN_HTML = """
         h2 { color: #007BFF; margin: 0; }
         .logout-btn { background: #dc3545; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 14px; }
         .logout-btn:hover { background: #c82333; }
-        table { width: 100%%; border-collapse: collapse; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
         th { background: #007BFF; color: white; }
         input, select, button { padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
@@ -75,9 +74,9 @@ ADMIN_HTML = """
             <h3>Thêm hoặc Cập nhật hạn thiết bị</h3>
             <form action="/admin/add" method="POST">
                 <label>Địa chỉ MAC:</label><br>
-                <input type="text" name="mac" placeholder="Ví dụ: AA:BB:CC:DD:EE:FF" required style="width: 100%%;"><br>
+                <input type="text" name="mac" placeholder="Ví dụ: 24:0A:C4:12:34:56" required style="width: 100%;"><br>
                 <label>Ngày hết hạn cụ thể:</label><br>
-                <input type="date" name="expiry_date" required style="width: 100%%;"><br><br>
+                <input type="date" name="expiry_date" required style="width: 100%;"><br><br>
                 <button type="submit">Lưu / Cập nhật</button>
             </form>
         </div>
@@ -110,7 +109,6 @@ def home():
   return "ESP32 License Server is running!"
 
 
-# 1. Đường dẫn chuyển hướng sang GitHub để đăng nhập
 @app.route("/login")
 def login():
   github_auth_url = (
@@ -119,14 +117,12 @@ def login():
   return redirect(github_auth_url)
 
 
-# 2. Nhận kết quả trả về từ GitHub sau khi đăng nhập thành công
 @app.route("/login/callback")
 def callback():
   code = request.args.get("code")
   if not code:
     return "Đăng nhập thất bại từ GitHub!", 400
 
-  # Lấy Access Token từ GitHub
   token_url = "https://github.com/login/oauth/access_token"
   headers = {"Accept": "application/json"}
   data = {
@@ -141,7 +137,6 @@ def callback():
   if not access_token:
     return "Không thể lấy Token xác thực từ GitHub!", 400
 
-  # Lấy thông tin tài khoản GitHub của người vừa đăng nhập
   user_url = "https://api.github.com/user"
   user_headers = {
       "Authorization": f"Bearer {access_token}",
@@ -151,8 +146,10 @@ def callback():
   user_data = user_response.json()
   github_username = user_data.get("login")
 
-  # KIỂM TRA BẢO MẬT: Chỉ đúng tài khoản của bạn mới được phép vào
-  if github_username and github_username.lower() == YOUR_GITHUB_USERNAME.lower():
+  if (
+      github_username
+      and github_username.lower() == YOUR_GITHUB_USERNAME.lower()
+  ):
     session["user"] = github_username
     return redirect(url_for("admin_panel"))
   else:
@@ -163,7 +160,7 @@ def callback():
     )
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET"])
 def logout():
   session.pop("user", None)
   return redirect(url_for("login"))
@@ -171,7 +168,6 @@ def logout():
 
 @app.route("/admin", methods=["GET"])
 def admin_panel():
-  # Nếu chưa đăng nhập bằng GitHub -> Chuyển hướng sang trang login
   if "user" not in session:
     return redirect(url_for("login"))
 
@@ -210,7 +206,6 @@ def admin_add():
 
 @app.route("/api/check-license", methods=["GET"])
 def check_license():
-  # API này công khai cho ESP32 gọi tự do không cần đăng nhập
   mac_address = request.args.get("mac")
   if not mac_address:
     return (
