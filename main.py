@@ -15,15 +15,21 @@ import requests
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- CẤU HÌNH MONGODB ---
-# Bạn có thể cấu hình biến môi trường MONGO_URI trên Render, hoặc điền trực tiếp chuỗi kết nối vào đây
-MONGO_URI = os.environ.get(
-    "MONGO_URI",
-    "mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority",
-)
-client = MongoClient(MONGO_URI)
-db = client["esp32_manager"]  # Tên database
-devices_collection = db["devices"]  # Tên collection (bảng)
+# --- CẤU HÌNH MONGODB VÀ BẮT LỖI ---
+MONGO_URI = os.environ.get("MONGO_URI", "")
+client = None
+db = None
+devices_collection = None
+
+try:
+  # Thiết lập timeout 5 giây để tránh bị treo nếu không kết nối được
+  client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+  client.admin.command("ping")  # Kiểm tra kết nối thực tế
+  db = client["esp32_manager"]
+  devices_collection = db["devices"]
+  print(">>> KẾT NỐI MONGODB THÀNH CÔNG! <<<")
+except Exception as e:
+  print(f">>> LỖI KẾT NỐI MONGODB: {e} <<<")
 
 # --- CẤU HÌNH GITHUB OAUTH ---
 GITHUB_CLIENT_ID = "Ov23liD2PKCxgNkZfUj5"
@@ -35,38 +41,48 @@ DEFAULT_FIRMWARE_URL = "https://esp32-z1t9.onrender.com/xiaozhi.bin"
 DEFAULT_LATEST_VERSION = "v1.1.0"
 
 
-# --- HÀM THAO TÁC CSDL THAY CHO FILE JSON ---
+# --- HÀM THAO TÁC CSDL AN TOÀN ---
 def load_db():
-  # Trả về dạng dictionary giống cấu trúc cũ để code bên dưới không bị lỗi: {mac: info, ...}
   devices = {}
-  for doc in devices_collection.find():
-    mac = doc["_id"]
-    devices[mac] = {
-        "status": doc.get("status"),
-        "expires_at": doc.get("expires_at"),
-        "trial": doc.get("trial"),
-        "ota_pending": doc.get("ota_pending"),
-        "created_at": doc.get("created_at"),
-    }
+  try:
+    if devices_collection is not None:
+      for doc in devices_collection.find():
+        mac = doc["_id"]
+        devices[mac] = {
+            "status": doc.get("status"),
+            "expires_at": doc.get("expires_at"),
+            "trial": doc.get("trial"),
+            "ota_pending": doc.get("ota_pending"),
+            "created_at": doc.get("created_at"),
+        }
+  except Exception as e:
+    print(f"Lỗi khi đọc database: {e}")
   return devices
 
 
 def get_device(mac):
-  doc = devices_collection.find_one({"_id": mac})
-  if doc:
-    return {
-        "status": doc.get("status"),
-        "expires_at": doc.get("expires_at"),
-        "trial": doc.get("trial"),
-        "ota_pending": doc.get("ota_pending"),
-        "created_at": doc.get("created_at"),
-    }
+  try:
+    if devices_collection is not None:
+      doc = devices_collection.find_one({"_id": mac})
+      if doc:
+        return {
+            "status": doc.get("status"),
+            "expires_at": doc.get("expires_at"),
+            "trial": doc.get("trial"),
+            "ota_pending": doc.get("ota_pending"),
+            "created_at": doc.get("created_at"),
+        }
+  except Exception as e:
+    print(f"Lỗi khi tìm thiết bị {mac}: {e}")
   return None
 
 
 def save_device(mac, data):
-  # Sử dụng upsert: nếu có thì cập nhật, chưa có thì thêm mới
-  devices_collection.update_one({"_id": mac}, {"$set": data}, upsert=True)
+  try:
+    if devices_collection is not None:
+      devices_collection.update_one({"_id": mac}, {"$set": data}, upsert=True)
+  except Exception as e:
+    print(f"Lỗi khi lưu thiết bị {mac}: {e}")
 
 
 # --- GIAO DIỆN TRANG ĐĂNG NHẬP ---
