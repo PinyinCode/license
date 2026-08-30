@@ -42,7 +42,7 @@ GITHUB_CLIENT_SECRET = "158a74d6beed0ed201ad9a7c4a041738d3185eb6"
 YOUR_GITHUB_USERNAME = "PinyinCode"
 
 # Link file firmware .bin của bạn trên Render Static Site
-DEFAULT_FIRMWARE_URL = "https://esp32-z1t9.onrender.com/xiaozhi.bin"
+DEFAULT_FIRMWARE_URL = "https://esp32-linkdownload.onrender.com/xiaozhi.bin"
 DEFAULT_LATEST_VERSION = "v1.1.0"
 
 
