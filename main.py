@@ -15,15 +15,20 @@ import requests
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- CẤU HÌNH MONGODB VÀ BẮT LỖI ---
+# --- CẤU HÌNH MONGODB VÀ BẮT LỖI (Đã thêm fix lỗi SSL) ---
 MONGO_URI = os.environ.get("MONGO_URI", "")
 client = None
 db = None
 devices_collection = None
 
 try:
-  # Thiết lập timeout 5 giây để tránh bị treo nếu không kết nối được
-  client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+  # Thêm tls=True và tlsAllowInvalidCertificates=True để tránh lỗi SSL handshake trên Render
+  client = MongoClient(
+      MONGO_URI,
+      serverSelectionTimeoutMS=5000,
+      tls=True,
+      tlsAllowInvalidCertificates=True,
+  )
   client.admin.command("ping")  # Kiểm tra kết nối thực tế
   db = client["esp32_manager"]
   devices_collection = db["devices"]
