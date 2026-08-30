@@ -2,5 +2,5 @@
 requests
 gunicorn
 pymongo
-
+certifi
 
