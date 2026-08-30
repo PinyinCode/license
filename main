@@ -16,21 +16,20 @@ import requests
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- CẤU HÌNH MONGODB VỚI CERTIFI ĐỂ KHẮC PHỤC LỖI SSL ---
+# --- CẤU HÌNH MONGODB VỚI CERTIFI ---
 MONGO_URI = os.environ.get("MONGO_URI", "")
 client = None
 db = None
 devices_collection = None
 
 try:
-  # Sử dụng certifi.where() để cung cấp bộ chứng chỉ SSL chuẩn cho MongoDB Atlas
   client = MongoClient(
       MONGO_URI,
       serverSelectionTimeoutMS=5000,
       tls=True,
       tlsCAFile=certifi.where(),
   )
-  client.admin.command("ping")  # Kiểm tra kết nối thực tế
+  client.admin.command("ping")
   db = client["esp32_manager"]
   devices_collection = db["devices"]
   print(">>> KẾT NỐI MONGODB THÀNH CÔNG VỚI CERTIFI! <<<")
@@ -53,10 +52,10 @@ def load_db():
   try:
     if devices_collection is not None:
       for doc in devices_collection.find():
-        # Đảm bảo lấy chính xác _id làm MAC address và ép kiểu chuỗi
         mac = str(doc.get("_id", ""))
         if mac:
           devices[mac] = {
+              "username": doc.get("username", ""),
               "status": doc.get("status", "active"),
               "expires_at": doc.get("expires_at", ""),
               "trial": doc.get("trial", False),
@@ -74,6 +73,7 @@ def get_device(mac):
       doc = devices_collection.find_one({"_id": mac})
       if doc:
         return {
+            "username": doc.get("username", ""),
             "status": doc.get("status", "active"),
             "expires_at": doc.get("expires_at", ""),
             "trial": doc.get("trial", False),
@@ -119,7 +119,7 @@ LOGIN_HTML = """
 </html>
 """
 
-# --- GIAO DIỆN TRANG QUẢN TRỊ ---
+# --- GIAO DIỆN TRANG QUẢN TRỊ (Đã thêm cột Username & sửa trực tiếp) ---
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -128,21 +128,25 @@ ADMIN_HTML = """
     <title>Quản lý Bản quyền & OTA ESP32</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background: #f4f7f6; color: #333; }
-        .container { max-width: 950px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { max-width: 1050px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .header { display: flex; justify-content: space-between; align-items: center; }
         h2 { color: #007BFF; margin: 0; }
         .logout-btn { background: #dc3545; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 14px; }
         .logout-btn:hover { background: #c82333; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; font-size: 14px; }
         th { background: #007BFF; color: white; }
-        input, select, button { padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+        input, select, button { padding: 6px 8px; margin: 3px 0; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
         button { background: #28a745; color: white; border: none; cursor: pointer; }
         button:hover { background: #218838; }
-        .ota-btn { background: #17a2b8; padding: 6px 10px; font-size: 13px; border-radius: 4px; color: white; text-decoration: none; display: inline-block; }
+        .ota-btn { background: #17a2b8; padding: 5px 8px; font-size: 12px; border-radius: 4px; color: white; text-decoration: none; display: inline-block; }
         .ota-btn:hover { background: #138496; }
         .ota-active { background: #ffc107; color: #212529; font-weight: bold; }
+        .delete-btn { background: #dc3545; padding: 5px 8px; font-size: 12px; border-radius: 4px; color: white; text-decoration: none; display: inline-block; margin-left: 3px; }
+        .delete-btn:hover { background: #c82333; }
         .form-group { background: #e9ecef; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+        .form-row { display: flex; gap: 15px; }
+        .form-col { flex: 1; }
     </style>
 </head>
 <body>
@@ -154,13 +158,24 @@ ADMIN_HTML = """
         <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
         
         <div class="form-group">
-            <h3>Thêm hoặc Cập nhật hạn thiết bị</h3>
+            <h3>Thêm hoặc Cập nhật thiết bị mới</h3>
             <form action="/admin/add" method="POST">
-                <label>Địa chỉ MAC:</label><br>
-                <input type="text" name="mac" placeholder="Ví dụ: 24:0A:C4:12:34:56" required style="width: 100%;"><br>
-                <label>Ngày hết hạn cụ thể:</label><br>
-                <input type="date" name="expiry_date" required style="width: 100%;"><br><br>
-                <button type="submit">Lưu / Cập nhật</button>
+                <div class="form-row">
+                    <div class="form-col">
+                        <label>Địa chỉ MAC:</label><br>
+                        <input type="text" name="mac" placeholder="Ví dụ: 24:0A:C4:12:34:56" required style="width: 100%;">
+                    </div>
+                    <div class="form-col">
+                        <label>Tên quản lý / Username:</label><br>
+                        <input type="text" name="username" placeholder="Ví dụ: Thiết bị phòng khách" style="width: 100%;">
+                    </div>
+                    <div class="form-col">
+                        <label>Ngày hết hạn:</label><br>
+                        <input type="date" name="expiry_date" required style="width: 100%;">
+                    </div>
+                </div>
+                <br>
+                <button type="submit">Lưu / Cập nhật thiết bị</button>
             </form>
         </div>
 
@@ -168,24 +183,34 @@ ADMIN_HTML = """
         <table>
             <tr>
                 <th>Địa chỉ MAC</th>
+                <th>Tên quản lý (Username)</th>
                 <th>Trạng thái</th>
-                <th>Loại</th>
                 <th>Ngày hết hạn</th>
                 <th>Thao tác OTA</th>
+                <th>Thao tác khác</th>
             </tr>
             {% for mac, info in devices.items() %}
             <tr>
                 <td><b>{{ mac }}</b></td>
+                <td>
+                    <!-- Form sửa nhanh Username ngay tại bảng -->
+                    <form action="/admin/update-username/{{ mac }}" method="POST" style="display: flex; gap: 5px; margin: 0;">
+                        <input type="text" name="username" value="{{ info.username }}" placeholder="Nhập tên..." style="flex: 1;">
+                        <button type="submit" style="padding: 4px 8px; font-size: 12px;">Lưu</button>
+                    </form>
+                </td>
                 <td style="color: {{ 'green' if info.status == 'active' else 'red' }};">{{ info.status }}</td>
-                <td>{{ 'Dùng thử (Trial)' if info.trial else 'Chính thức' }}</td>
                 <td>{{ info.expires_at }}</td>
                 <td>
                     {% if info.get('ota_pending', False) %}
-                        <span class="ota-btn ota-active">Chờ cập nhật...</span>
-                        <a href="/admin/cancel-ota/{{ mac }}" style="font-size:12px; color:red; margin-left: 5px;">Hủy</a>
+                        <span class="ota-btn ota-active">Đang chờ...</span>
+                        <a href="/admin/cancel-ota/{{ mac }}" style="font-size:11px; color:red; margin-left: 3px;">Hủy</a>
                     {% else %}
                         <a href="/admin/trigger-ota/{{ mac }}" class="ota-btn">Cập nhật OTA</a>
                     {% endif %}
+                </td>
+                <td>
+                    <a href="/admin/delete/{{ mac }}" class="delete-btn" onclick="return confirm('Bạn có chắc chắn muốn xóa thiết bị {{ mac }} không?');">Xóa</a>
                 </td>
             </tr>
             {% endfor %}
@@ -282,6 +307,7 @@ def admin_add():
     return redirect(url_for("login"))
 
   mac = request.form.get("mac")
+  username = request.form.get("username", "").strip()
   expiry_date_str = request.form.get("expiry_date")
 
   if mac and expiry_date_str:
@@ -293,9 +319,12 @@ def admin_add():
       device = get_device(mac)
       if device:
         device["expires_at"] = expiry_date.isoformat()
+        if username:
+          device["username"] = username
         device["status"] = "active"
       else:
         device = {
+            "username": username,
             "status": "active",
             "expires_at": expiry_date.isoformat(),
             "trial": False,
@@ -305,6 +334,24 @@ def admin_add():
       save_device(mac, device)
     except ValueError:
       pass
+
+  return redirect(url_for("admin_panel"))
+
+
+# --- ĐƯỜNG DẪN CẬP NHẬT NHANH USERNAME TRÊN BẢNG ---
+@app.route("/admin/update-username/<path:mac>", methods=["POST"])
+def update_username(mac):
+  if "user" not in session:
+    return redirect(url_for("login"))
+
+  mac = mac.strip().upper()
+  username = request.form.get("username", "").strip()
+
+  device = get_device(mac)
+  if device:
+    device["username"] = username
+    save_device(mac, device)
+    print(f">>> ĐÃ CẬP NHẬT USERNAME CHO THIẾT BỊ {mac}: {username} <<<")
 
   return redirect(url_for("admin_panel"))
 
@@ -337,6 +384,22 @@ def cancel_ota(mac):
   return redirect(url_for("admin_panel"))
 
 
+@app.route("/admin/delete/<path:mac>", methods=["GET"])
+def admin_delete(mac):
+  if "user" not in session:
+    return redirect(url_for("login"))
+
+  mac = mac.strip().upper()
+  try:
+    if devices_collection is not None:
+      devices_collection.delete_one({"_id": mac})
+      print(f">>> ĐÃ XÓA THIẾT BỊ {mac} KHỎI DATABASE <<<")
+  except Exception as e:
+    print(f"Lỗi khi xóa thiết bị {mac}: {e}")
+
+  return redirect(url_for("admin_panel"))
+
+
 @app.route("/api/check-license", methods=["GET"])
 def check_license():
   mac_address = request.args.get("mac")
@@ -353,6 +416,7 @@ def check_license():
   if not device_info:
     expiry_date = now + timedelta(days=30)
     device_info = {
+        "username": "",
         "status": "active",
         "expires_at": expiry_date.isoformat(),
         "trial": True,
