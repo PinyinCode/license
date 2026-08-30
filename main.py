@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-import json
 import os
 from flask import (
     Flask,
@@ -10,12 +9,21 @@ from flask import (
     session,
     url_for,
 )
+from pymongo import MongoClient
 import requests
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-DB_FILE = "devices.json"
+# --- CẤU HÌNH MONGODB ---
+# Bạn có thể cấu hình biến môi trường MONGO_URI trên Render, hoặc điền trực tiếp chuỗi kết nối vào đây
+MONGO_URI = os.environ.get(
+    "MONGO_URI",
+    "mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority",
+)
+client = MongoClient(MONGO_URI)
+db = client["esp32_manager"]  # Tên database
+devices_collection = db["devices"]  # Tên collection (bảng)
 
 # --- CẤU HÌNH GITHUB OAUTH ---
 GITHUB_CLIENT_ID = "Ov23liD2PKCxgNkZfUj5"
@@ -27,19 +35,38 @@ DEFAULT_FIRMWARE_URL = "https://esp32-z1t9.onrender.com/xiaozhi.bin"
 DEFAULT_LATEST_VERSION = "v1.1.0"
 
 
+# --- HÀM THAO TÁC CSDL THAY CHO FILE JSON ---
 def load_db():
-  if os.path.exists(DB_FILE):
-    try:
-      with open(DB_FILE, "r") as f:
-        return json.load(f)
-    except:
-      return {}
-  return {}
+  # Trả về dạng dictionary giống cấu trúc cũ để code bên dưới không bị lỗi: {mac: info, ...}
+  devices = {}
+  for doc in devices_collection.find():
+    mac = doc["_id"]
+    devices[mac] = {
+        "status": doc.get("status"),
+        "expires_at": doc.get("expires_at"),
+        "trial": doc.get("trial"),
+        "ota_pending": doc.get("ota_pending"),
+        "created_at": doc.get("created_at"),
+    }
+  return devices
 
 
-def save_db(data):
-  with open(DB_FILE, "w") as f:
-    json.dump(data, f, indent=4)
+def get_device(mac):
+  doc = devices_collection.find_one({"_id": mac})
+  if doc:
+    return {
+        "status": doc.get("status"),
+        "expires_at": doc.get("expires_at"),
+        "trial": doc.get("trial"),
+        "ota_pending": doc.get("ota_pending"),
+        "created_at": doc.get("created_at"),
+    }
+  return None
+
+
+def save_device(mac, data):
+  # Sử dụng upsert: nếu có thì cập nhật, chưa có thì thêm mới
+  devices_collection.update_one({"_id": mac}, {"$set": data}, upsert=True)
 
 
 # --- GIAO DIỆN TRANG ĐĂNG NHẬP ---
@@ -147,7 +174,7 @@ ADMIN_HTML = """
 
 @app.route("/")
 def home():
-  return "ESP32 License & OTA Server is running!"
+  return "ESP32 License & OTA Server is running with MongoDB!"
 
 
 @app.route("/login")
@@ -239,19 +266,19 @@ def admin_add():
       expiry_date = datetime.strptime(expiry_date_str, "%Y-%m-%d").replace(
           hour=23, minute=59, second=59
       )
-      db = load_db()
-      if mac in db:
-        db[mac]["expires_at"] = expiry_date.isoformat()
-        db[mac]["status"] = "active"
+      device = get_device(mac)
+      if device:
+        device["expires_at"] = expiry_date.isoformat()
+        device["status"] = "active"
       else:
-        db[mac] = {
+        device = {
             "status": "active",
             "expires_at": expiry_date.isoformat(),
             "trial": False,
             "ota_pending": False,
             "created_at": datetime.utcnow().isoformat(),
         }
-      save_db(db)
+      save_device(mac, device)
     except ValueError:
       pass
 
@@ -264,10 +291,10 @@ def trigger_ota(mac):
     return redirect(url_for("login"))
 
   mac = mac.strip().upper()
-  db = load_db()
-  if mac in db:
-    db[mac]["ota_pending"] = True
-    save_db(db)
+  device = get_device(mac)
+  if device:
+    device["ota_pending"] = True
+    save_device(mac, device)
 
   return redirect(url_for("admin_panel"))
 
@@ -278,10 +305,10 @@ def cancel_ota(mac):
     return redirect(url_for("login"))
 
   mac = mac.strip().upper()
-  db = load_db()
-  if mac in db:
-    db[mac]["ota_pending"] = False
-    save_db(db)
+  device = get_device(mac)
+  if device:
+    device["ota_pending"] = False
+    save_device(mac, device)
 
   return redirect(url_for("admin_panel"))
 
@@ -297,25 +324,24 @@ def check_license():
 
   mac_address = mac_address.upper()
   now = datetime.utcnow()
-  db = load_db()
+  device_info = get_device(mac_address)
 
-  if mac_address not in db:
+  if not device_info:
     expiry_date = now + timedelta(days=30)
-    db[mac_address] = {
+    device_info = {
         "status": "active",
         "expires_at": expiry_date.isoformat(),
         "trial": True,
         "ota_pending": False,
         "created_at": now.isoformat(),
     }
-    save_db(db)
+    save_device(mac_address, device_info)
 
-  device_info = db[mac_address]
   expiry_time = datetime.fromisoformat(device_info["expires_at"])
 
   if now > expiry_time:
     device_info["status"] = "expired"
-    save_db(db)
+    save_device(mac_address, device_info)
     return jsonify({
         "mac": mac_address,
         "status": "expired",
@@ -339,11 +365,11 @@ def check_update():
     return jsonify({"update_available": False, "error": "Missing MAC"}), 400
 
   mac_address = mac_address.upper()
-  db = load_db()
+  device_info = get_device(mac_address)
 
-  if mac_address in db and db[mac_address].get("ota_pending", False):
-    db[mac_address]["ota_pending"] = False
-    save_db(db)
+  if device_info and device_info.get("ota_pending", False):
+    device_info["ota_pending"] = False
+    save_device(mac_address, device_info)
 
     return jsonify({
         "update_available": True,
