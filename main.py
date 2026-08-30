@@ -47,14 +47,16 @@ def load_db():
   try:
     if devices_collection is not None:
       for doc in devices_collection.find():
-        mac = doc["_id"]
-        devices[mac] = {
-            "status": doc.get("status"),
-            "expires_at": doc.get("expires_at"),
-            "trial": doc.get("trial"),
-            "ota_pending": doc.get("ota_pending"),
-            "created_at": doc.get("created_at"),
-        }
+        # Đảm bảo lấy chính xác _id làm MAC address và ép kiểu chuỗi
+        mac = str(doc.get("_id", ""))
+        if mac:
+          devices[mac] = {
+              "status": doc.get("status", "active"),
+              "expires_at": doc.get("expires_at", ""),
+              "trial": doc.get("trial", False),
+              "ota_pending": doc.get("ota_pending", False),
+              "created_at": doc.get("created_at", ""),
+          }
   except Exception as e:
     print(f"Lỗi khi đọc database: {e}")
   return devices
@@ -66,11 +68,11 @@ def get_device(mac):
       doc = devices_collection.find_one({"_id": mac})
       if doc:
         return {
-            "status": doc.get("status"),
-            "expires_at": doc.get("expires_at"),
-            "trial": doc.get("trial"),
-            "ota_pending": doc.get("ota_pending"),
-            "created_at": doc.get("created_at"),
+            "status": doc.get("status", "active"),
+            "expires_at": doc.get("expires_at", ""),
+            "trial": doc.get("trial", False),
+            "ota_pending": doc.get("ota_pending", False),
+            "created_at": doc.get("created_at", ""),
         }
   except Exception as e:
     print(f"Lỗi khi tìm thiết bị {mac}: {e}")
