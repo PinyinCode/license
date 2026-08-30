@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import os
+import certifi
 from flask import (
     Flask,
     jsonify,
@@ -15,24 +16,24 @@ import requests
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- CẤU HÌNH MONGODB VÀ BẮT LỖI (Đã thêm fix lỗi SSL) ---
+# --- CẤU HÌNH MONGODB VỚI CERTIFI ĐỂ KHẮC PHỤC LỖI SSL ---
 MONGO_URI = os.environ.get("MONGO_URI", "")
 client = None
 db = None
 devices_collection = None
 
 try:
-  # Thêm tls=True và tlsAllowInvalidCertificates=True để tránh lỗi SSL handshake trên Render
+  # Sử dụng certifi.where() để cung cấp bộ chứng chỉ SSL chuẩn cho MongoDB Atlas
   client = MongoClient(
       MONGO_URI,
       serverSelectionTimeoutMS=5000,
       tls=True,
-      tlsAllowInvalidCertificates=True,
+      tlsCAFile=certifi.where(),
   )
   client.admin.command("ping")  # Kiểm tra kết nối thực tế
   db = client["esp32_manager"]
   devices_collection = db["devices"]
-  print(">>> KẾT NỐI MONGODB THÀNH CÔNG! <<<")
+  print(">>> KẾT NỐI MONGODB THÀNH CÔNG VỚI CERTIFI! <<<")
 except Exception as e:
   print(f">>> LỖI KẾT NỐI MONGODB: {e} <<<")
 
@@ -197,7 +198,7 @@ ADMIN_HTML = """
 
 @app.route("/")
 def home():
-  return "ESP32 License & OTA Server is running with MongoDB!"
+  return "ESP32 License & OTA Server is running with MongoDB & Certifi!"
 
 
 @app.route("/login")
