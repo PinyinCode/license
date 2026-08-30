@@ -627,7 +627,28 @@ def check_update():
     mac_address = mac_address.upper()
     device_info = get_device(mac_address)
 
-    if device_info and device_info.get("ota_pending", False):
+    # 1. Nếu MAC không có trong hệ thống -> Từ chối cập nhật
+    if not device_info:
+        return jsonify({"update_available": False, "message": "Device not registered."})
+
+    # 2. Kiểm tra hạn sử dụng của thiết bị
+    now = datetime.utcnow()
+    try:
+        expiry_time = datetime.fromisoformat(device_info["expires_at"])
+    except Exception:
+        expiry_time = now
+
+    if now > expiry_time:
+        device_info["status"] = "expired"
+        device_info["ota_pending"] = False
+        save_device(mac_address, device_info)
+        return jsonify({
+            "update_available": False,
+            "message": "License expired. Update denied."
+        })
+
+    # 3. Chỉ cho phép cập nhật khi còn hạn và có bật cờ yêu cầu OTA (ota_pending = True)
+    if device_info.get("ota_pending", False):
         device_info["ota_pending"] = False
         save_device(mac_address, device_info)
 
@@ -635,7 +656,7 @@ def check_update():
             "update_available": True,
             "latest_version": DEFAULT_LATEST_VERSION,
             "firmware_url": DEFAULT_FIRMWARE_URL,
-            "changelog": "Cập nhật từ xa theo yêu cầu.",
+            "changelog": "Cập nhật thành công theo yêu cầu hợp lệ.",
         })
 
     return jsonify({"update_available": False})
