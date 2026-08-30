@@ -16,21 +16,20 @@ import requests
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- CẤU HÌNH MONGODB VỚI CERTIFI ĐỂ KHẮC PHỤC LỖI SSL ---
+# --- CẤU HÌNH MONGODB VỚI CERTIFI ---
 MONGO_URI = os.environ.get("MONGO_URI", "")
 client = None
 db = None
 devices_collection = None
 
 try:
-  # Sử dụng certifi.where() để cung cấp bộ chứng chỉ SSL chuẩn cho MongoDB Atlas
   client = MongoClient(
       MONGO_URI,
       serverSelectionTimeoutMS=5000,
       tls=True,
       tlsCAFile=certifi.where(),
   )
-  client.admin.command("ping")  # Kiểm tra kết nối thực tế
+  client.admin.command("ping")
   db = client["esp32_manager"]
   devices_collection = db["devices"]
   print(">>> KẾT NỐI MONGODB THÀNH CÔNG VỚI CERTIFI! <<<")
@@ -53,7 +52,6 @@ def load_db():
   try:
     if devices_collection is not None:
       for doc in devices_collection.find():
-        # Đảm bảo lấy chính xác _id làm MAC address và ép kiểu chuỗi
         mac = str(doc.get("_id", ""))
         if mac:
           devices[mac] = {
@@ -119,7 +117,7 @@ LOGIN_HTML = """
 </html>
 """
 
-# --- GIAO DIỆN TRANG QUẢN TRỊ ---
+# --- GIAO DIỆN TRANG QUẢN TRỊ (Đã thêm nút Xóa) ---
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -142,6 +140,8 @@ ADMIN_HTML = """
         .ota-btn { background: #17a2b8; padding: 6px 10px; font-size: 13px; border-radius: 4px; color: white; text-decoration: none; display: inline-block; }
         .ota-btn:hover { background: #138496; }
         .ota-active { background: #ffc107; color: #212529; font-weight: bold; }
+        .delete-btn { background: #dc3545; padding: 6px 10px; font-size: 13px; border-radius: 4px; color: white; text-decoration: none; display: inline-block; margin-left: 5px; }
+        .delete-btn:hover { background: #c82333; }
         .form-group { background: #e9ecef; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
     </style>
 </head>
@@ -171,7 +171,7 @@ ADMIN_HTML = """
                 <th>Trạng thái</th>
                 <th>Loại</th>
                 <th>Ngày hết hạn</th>
-                <th>Thao tác OTA</th>
+                <th>Thao tác</th>
             </tr>
             {% for mac, info in devices.items() %}
             <tr>
@@ -186,6 +186,9 @@ ADMIN_HTML = """
                     {% else %}
                         <a href="/admin/trigger-ota/{{ mac }}" class="ota-btn">Cập nhật OTA</a>
                     {% endif %}
+                    
+                    <!-- Nút Xóa thiết bị -->
+                    <a href="/admin/delete/{{ mac }}" class="delete-btn" onclick="return confirm('Bạn có chắc chắn muốn xóa thiết bị {{ mac }} khỏi cơ sở dữ liệu không?');">Xóa</a>
                 </td>
             </tr>
             {% endfor %}
@@ -333,6 +336,23 @@ def cancel_ota(mac):
   if device:
     device["ota_pending"] = False
     save_device(mac, device)
+
+  return redirect(url_for("admin_panel"))
+
+
+# --- ĐƯỜNG DẪN XÓA THIẾT BỊ KHỎI MONGODB ---
+@app.route("/admin/delete/<path:mac>", methods=["GET"])
+def admin_delete(mac):
+  if "user" not in session:
+    return redirect(url_for("login"))
+
+  mac = mac.strip().upper()
+  try:
+    if devices_collection is not None:
+      devices_collection.delete_one({"_id": mac})
+      print(f">>> ĐÃ XÓA THIẾT BỊ {mac} KHỎI DATABASE <<<")
+  except Exception as e:
+    print(f"Lỗi khi xóa thiết bị {mac}: {e}")
 
   return redirect(url_for("admin_panel"))
 
