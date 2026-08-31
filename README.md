@@ -12,6 +12,8 @@ https://esp32-ota-server-9yuy.onrender.com/api/check-update?mac=24:0A:C4:12:34:5
 (Link đến file xiaozhi.bin - PinyinCode/esp32):
 https://esp32-ejrs.onrender.com/
 
+https://esp32-bank-speaker.onrender.com/device-portal
+
 
 
 
